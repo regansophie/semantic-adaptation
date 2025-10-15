@@ -1,0 +1,129 @@
+---
+title: "Ex. 1 Analyis"
+output: html_document
+date: "2023-11-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(boot)
+library(ggthemes)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(lme4)
+```
+
+```{r}
+data <- read.csv("Ex. 1 Data.csv")
+
+data_pivot <- data %>% 
+  pivot_longer(c(-Subject.ID))
+
+data_mutate <- data_pivot %>% 
+  mutate(nCandies = sub("X([0-9]).*", "\\1", name, perl = TRUE)) %>%
+  mutate(nCandies=as.numeric(nCandies))
+
+
+data_final_temp <- data_mutate %>% 
+  mutate(clean_num = case_when(grepl("some", value)~0,
+                               grepl("many", value)~1))
+
+
+data_final <- data_final_temp %>% 
+  filter(!is.na(clean_num) & !(value=="other"))
+
+```
+
+```{r}
+ci.low <- function(x, R = 2000, conf = 0.95) {
+  boot_mean <- function(data, idx) mean(data[idx], na.rm = TRUE)
+  b <- boot(x, boot_mean, R = R)
+  qs <- quantile(b$t, probs = (1 - conf) / 2, names = FALSE, type = 7)
+  mean(x) - qs
+}
+
+ci.high <- function(x, R = 2000, conf = 0.95) {
+  boot_mean <- function(data, idx) mean(data[idx], na.rm = TRUE)
+  b <- boot(x, boot_mean, R = R)
+  qs <- quantile(b$t, probs = 1 - (1 - conf) / 2, names = FALSE, type = 7)
+  qs - mean(x)
+}
+```
+
+```{r}
+means_many <- data_final %>% 
+  group_by(Subject.ID, nCandies) %>% 
+  summarise(subject_mean = mean(clean_num), .groups = "drop") %>%
+  group_by(nCandies) %>%
+  summarise(
+    mean = mean(subject_mean),
+    ci_low = mean - ci.low(subject_mean),
+    ci_high = mean + ci.high(subject_mean))
+
+data_final_temp <- data_mutate %>% mutate(clean_num = case_when(grepl("some", value)~1,
+                                                               grepl("many", value)~0
+                                                               ))
+
+data_final <- data_final_temp %>% filter(!is.na(clean_num) & !(value=="other"))
+
+
+means_some <- data_final %>%
+  group_by(Subject.ID, nCandies) %>% 
+  summarise(subject_mean = mean(clean_num)) %>%
+  group_by(nCandies) %>%
+  summarise(mean= mean(subject_mean),
+         ci_high = mean+ ci.high(subject_mean), 
+         ci_low = mean- ci.low(subject_mean)
+         )
+
+means_some$Response <- "some"
+means_many$Response <- "many"
+
+means_total <- rbind(means_many, means_some)
+```
+# Final Plot
+```{r}
+pd <- position_dodge(width = 0.3)
+
+means_total$Response <- factor(
+  stringr::str_to_title(means_total$Response),  # Capitalize: Some, Many
+  levels = c("Some", "Many")  # Ensure Some comes before Many
+)
+
+ggplot(data = means_total, aes(x = nCandies, y = mean, lty = Response, group = Response, color = Response)) + 
+  geom_line(position = pd, linewidth = 1) +  # apply same position
+  geom_pointrange(
+    aes(ymin = ci_low, ymax = ci_high),
+    position = pd,
+    shape = 16,
+    size = 1.5,
+    fatten = 1.5,
+    show.legend = FALSE
+  ) +
+  labs(
+    x = "Number of Candies",
+    y = "Proportion of Response"
+  ) +
+  ylim(0, 1) +
+  ggthemes::theme_few(base_size = 14) +
+  theme(
+    text = element_text(family = "Arial"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    strip.text = element_text(size = 16, face = "bold")
+  )
+
+ggsave("ex. 1 final plot 1.0.png", width = 10, height = 7)
+```
+
+```{r}
+model_1 <- glmer(data = data_final, clean_num ~ nCandies + (1|Subject.ID),
+                 family = binomial)
+
+summary(model_1)
+```
+
+
