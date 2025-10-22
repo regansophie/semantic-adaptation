@@ -1,0 +1,171 @@
+---
+title: "Ex. 3 Analysis"
+output: html_document
+date: "2023-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(boot)
+library(ggthemes)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(lme4)
+library(stringr)
+library(tidylog)
+```
+
+```{r}
+#reading in the data
+data_csv <- read.csv("Study 3 Final Data.csv")
+```
+
+Bootstrap functions
+```{r}
+ci.low <- function(x, R = 2000, conf = 0.95) {
+  boot_mean <- function(data, idx) mean(data[idx], na.rm = TRUE)
+  b <- boot(x, boot_mean, R = R)
+  qs <- quantile(b$t, probs = (1 - conf) / 2, names = FALSE, type = 7)
+  mean(x) - qs
+}
+
+ci.high <- function(x, R = 2000, conf = 0.95) {
+  boot_mean <- function(data, idx) mean(data[idx], na.rm = TRUE)
+  b <- boot(x, boot_mean, R = R)
+  qs <- quantile(b$t, probs = 1 - (1 - conf) / 2, names = FALSE, type = 7)
+  qs - mean(x)
+}
+```
+
+```{r}
+#removing participants who failed the catch trials
+data_csv <- data_csv %>% filter(check.1 == "x" & (check.2 =="x" | check.2 == "skipped") & (check.3 =="x" | check.3 == "skipped") & (check.4 =="x" | check.4 == "skipped") & (check.5 =="x" | check.5 == "skipped") & (check.6 =="x" | check.6 == "skipped") & (check.7 =="x" | check.7 == "skipped") & (check.8 =="x" | check.8 == "skipped"))
+
+data <- data_csv %>% pivot_longer(c(-Particpant, -Age, -Gender, -Condition))
+
+#adding a column for number of candies and phase
+data.post <- data %>% filter(grepl("^S.[0-9]",name))
+data.post <- data.post %>% mutate(nCandies = sub("S.([0-9]).*", "\\1", name, perl = TRUE)) %>% mutate(nCandies=as.numeric(nCandies))
+data.post$phase <- "Phase 2"
+
+data.pre <- data %>% filter(grepl("^X",name))
+data.pre <- data.pre %>% mutate(nCandies = sub("X([0-9]).*", "\\1", name, perl = TRUE)) %>% mutate(nCandies=as.numeric(nCandies))
+data.pre$phase <- "Phase 1"
+
+#adding numeric values: 1 if response is many, 0 if response is some; filter out any other response
+data.full <- rbind(data.pre,data.post)
+data.full <- data.full %>% mutate(num_response = case_when(value=="many"~1, value == "some"~0))
+data.full <- data.full %>% filter(!is.na(num_response))
+
+data.full <- data.full %>% mutate(speaker = case_when((Condition == "Some-First" & phase == "Phase 1") ~ "some-biased",
+                                                      (Condition == "Many-First" & phase == "Phase 2") ~ "some-biased",
+                                                      .default = "many-biased"))
+
+#finding means and confidence intervals
+means_many <- data.full %>%
+  group_by(Particpant, phase, nCandies, Condition, speaker) %>% 
+  summarise(subject_mean = mean(num_response)) %>%
+  group_by(phase, nCandies, Condition, speaker) %>%
+  summarise(mean= mean(subject_mean),
+         ci_high = mean + ci.high(subject_mean), 
+         ci_low = mean - ci.low(subject_mean)
+         )  %>% 
+  mutate(response = "many")
+
+means_some <- data.full %>%
+  group_by(Particpant, phase, nCandies, Condition, speaker) %>% 
+  summarise(subject_mean = 1 - mean(num_response)) %>%
+  group_by(phase, nCandies, Condition, speaker) %>%
+  summarise(mean= mean(subject_mean),
+         ci_high = mean + ci.high(subject_mean), 
+         ci_low = mean - ci.low(subject_mean)
+         ) %>% 
+  mutate(response = "some")
+
+total_means = rbind(means_many, means_some)
+
+length(unique(data.full$Particpant))
+```
+
+# Making the Final Plot
+```{r}
+total_means$response <- factor(
+  stringr::str_to_title(total_means$response),  # Capitalize: Some, Many
+  levels = c("Some", "Many")  # Ensure Some comes before Many
+)
+
+total_means <- total_means %>%
+  mutate(speaker = case_when(
+      speaker == "some-biased" ~ "Some-biased Speaker",
+      speaker == "many-biased" ~ "Many-biased Speaker"),
+    speaker = factor(speaker,
+      levels = c("Some-biased Speaker", "Many-biased Speaker")
+    )
+  )
+
+
+ggplot(total_means, aes(
+  x = nCandies, y = mean,
+  color = speaker,
+  linetype = response,
+  group = interaction(speaker, response)
+)) +
+  geom_line(
+    position = position_dodge(width = 0.3),
+    linewidth = 1
+  ) +
+  geom_pointrange(
+    aes(ymin = ci_low, ymax = ci_high),
+    position = position_dodge(width = 0.3),
+    shape = 16,
+    size = 1.5,
+    fatten = 1.5,
+    show.legend = FALSE  
+  ) +
+  facet_wrap(~phase) +
+  labs(
+    x = "Number of Candies out of 10",
+    y = "Proportion of Each Choice",
+    color = "Speaker",
+    linetype = "Response"
+  ) +
+  ylim(0, 1) +
+  ggthemes::theme_few(base_size = 14) +
+  theme(
+    text = element_text(family = "Arial"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    strip.text = element_text(size = 16, face = "bold")
+  )
+
+ggsave("ex. 3 final plot 1.0.png", width = 14, height = 7)
+```
+
+
+
+```{r}
+data.full$n_centered <- data.full$nCandies-5
+
+#pre-registered model
+model <- glmer(num_response ~ n_centered * Condition * phase  + (1 | Particpant), 
+      data = data.full, 
+      family = "binomial")
+
+summary(model)
+```
+```{r}
+data.full.phase.1 <- data.full %>% filter(phase=="Phase 1")
+
+model_phase_1<- glmer(num_response ~ n_centered * Condition  + (1 | Particpant), 
+      data = data.full.phase.1, 
+      family = "binomial")
+
+summary(model_phase_1)
+```
+
+
+
+
