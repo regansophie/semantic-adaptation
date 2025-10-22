@@ -40,9 +40,6 @@ ci.high <- function(x, R = 2000, conf = 0.95) {
 ```
 
 ```{r}
-#removing participants who failed the catch trials
-#data_csv <- data_csv %>% filter(catch.1 == "x" & (check.2 =="x" | check.2 == "skipped") & (check.3 =="x" | check.3 == "skipped") & (check.4 =="x" | check.4 == "skipped") & (check.5 =="x" | check.5 == "skipped") & (check.6 =="x" | check.6 == "skipped") & (check.7 =="x" | check.7 == "skipped") & (check.8 =="x" | check.8 == "skipped"))
-
 data <- data_csv %>% pivot_longer(c(-Particpant, -Age, -Gender, -Condition))
 
 #adding a column for number of candies and phase
