@@ -19,7 +19,6 @@ library(tidylog)
 ```{r}
 #reading in the data
 data_csv <- read.csv("Study 3 Final Data.csv")
-
 ```
 
 Bootstrap functions
@@ -40,6 +39,9 @@ ci.high <- function(x, R = 2000, conf = 0.95) {
 ```
 
 ```{r}
+#removing participants who failed the catch trials
+data_csv <- data_csv %>% filter(check.1 == "x" & (check.2 =="x" | check.2 == "skipped") & (check.3 =="x" | check.3 == "skipped") & (check.4 =="x" | check.4 == "skipped") & (check.5 =="x" | check.5 == "skipped") & (check.6 =="x" | check.6 == "skipped") & (check.7 =="x" | check.7 == "skipped") & (check.8 =="x" | check.8 == "skipped"))
+
 data <- data_csv %>% pivot_longer(c(-Particpant, -Age, -Gender, -Condition))
 
 #adding a column for number of candies and phase
@@ -66,8 +68,8 @@ means_many <- data.full %>%
   summarise(subject_mean = mean(num_response)) %>%
   group_by(phase, nCandies, Condition, speaker) %>%
   summarise(mean= mean(subject_mean),
-         ci_high = mean+ ci.high(subject_mean), 
-         ci_low = mean- ci.low(subject_mean)
+         ci_high = mean + ci.high(subject_mean), 
+         ci_low = mean - ci.low(subject_mean)
          )  %>% 
   mutate(response = "many")
 
@@ -76,8 +78,8 @@ means_some <- data.full %>%
   summarise(subject_mean = 1 - mean(num_response)) %>%
   group_by(phase, nCandies, Condition, speaker) %>%
   summarise(mean= mean(subject_mean),
-         ci_high = mean+ ci.high(subject_mean), 
-         ci_low = mean- ci.low(subject_mean)
+         ci_high = mean + ci.high(subject_mean), 
+         ci_low = mean - ci.low(subject_mean)
          ) %>% 
   mutate(response = "some")
 
@@ -138,6 +140,8 @@ ggplot(total_means, aes(
     legend.position = "right",
     strip.text = element_text(size = 16, face = "bold")
   )
+
+ggsave("ex. 3 final plot 1.0.png", width = 14, height = 7)
 ```
 
 
